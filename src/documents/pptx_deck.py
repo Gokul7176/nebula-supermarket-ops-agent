@@ -3,7 +3,18 @@ import tempfile
 import sqlite3
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
+matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial', 'Helvetica']
+matplotlib.rcParams['font.family'] = 'sans-serif'
 import matplotlib.pyplot as plt
+
+# Pre-warm matplotlib rendering pipeline on module import to eliminate font-cache indexing delay
+try:
+    _fig, _ax = plt.subplots(figsize=(1, 1), dpi=50)
+    _ax.text(0.5, 0.5, "warmup")
+    _fig.savefig(os.path.devnull, format='png')
+    plt.close(_fig)
+except Exception:
+    pass
 
 from pptx import Presentation
 from pptx.util import Inches, Pt
@@ -44,10 +55,12 @@ def generate_pptx_analysis_deck_file(conn: sqlite3.Connection, start_date: str, 
     SELECT id, status, customer_name, payment_mode, finalized_at
     FROM bills
     WHERE status = 'finalized'
-      AND DATE(finalized_at) >= DATE(?)
-      AND DATE(finalized_at) <= DATE(?)
+      AND (
+        (DATE(finalized_at, 'localtime') >= DATE(?) AND DATE(finalized_at, 'localtime') <= DATE(?))
+        OR (DATE(finalized_at) >= DATE(?) AND DATE(finalized_at) <= DATE(?))
+      )
     """
-    finalized_bills = conn.execute(bills_query, (start_date, end_date)).fetchall()
+    finalized_bills = conn.execute(bills_query, (start_date, end_date, start_date, end_date)).fetchall()
 
     bill_ids = [b["id"] for b in finalized_bills]
 
@@ -186,5 +199,94 @@ def generate_pptx_analysis_deck_file(conn: sqlite3.Connection, start_date: str, 
     add_title(slide4, "Inventory Stock Health")
     slide4.shapes.add_picture(chart3_path, Inches(1.0), Inches(1.4), Inches(8.0), Inches(3.8))
 
+    # Slide 5: GST Breakdown
+    slide5 = prs.slides.add_slide(blank_layout)
+    add_title(slide5, "GST Breakdown")
+
+    standard_slabs = [0.0, 5.0, 12.0, 18.0]
+    present_slabs = [float(i["gst_slab_at_sale"]) for i in items_data if i["gst_slab_at_sale"] is not None]
+    all_slabs = sorted(list(set(standard_slabs + present_slabs)))
+
+    slab_summary = []
+    tot_cgst_sum = 0.0
+    tot_sgst_sum = 0.0
+    tot_gst_sum = 0.0
+
+    for slab in all_slabs:
+        slab_items = [i for i in items_data if float(i["gst_slab_at_sale"]) == slab]
+        cgst = sum(i["cgst_amount"] for i in slab_items)
+        sgst = sum(i["sgst_amount"] for i in slab_items)
+        tot = cgst + sgst
+        slab_summary.append({
+            "slab": slab,
+            "cgst": cgst,
+            "sgst": sgst,
+            "total": tot
+        })
+        tot_cgst_sum += cgst
+        tot_sgst_sum += sgst
+        tot_gst_sum += tot
+
+    rows = len(slab_summary) + 2  # Header + slabs + Total row
+    cols = 4
+    table_shape = slide5.shapes.add_table(rows, cols, Inches(1.0), Inches(1.4), Inches(8.0), Inches(0.45 * rows))
+    table = table_shape.table
+
+    table.columns[0].width = Inches(2.0)
+    table.columns[1].width = Inches(2.0)
+    table.columns[2].width = Inches(2.0)
+    table.columns[3].width = Inches(2.0)
+
+    headers = ["GST Slab", "CGST Collected", "SGST Collected", "Total GST"]
+    for c_idx, h_text in enumerate(headers):
+        cell = table.cell(0, c_idx)
+        cell.text = h_text
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = NAVY
+        p = cell.text_frame.paragraphs[0]
+        p.font.bold = True
+        p.font.size = Pt(13)
+        p.font.color.rgb = WHITE
+        p.alignment = PP_ALIGN.CENTER if c_idx == 0 else PP_ALIGN.RIGHT
+
+    for r_idx, row_data in enumerate(slab_summary, 1):
+        bg = RGBColor(245, 247, 250) if r_idx % 2 == 1 else WHITE
+        slab_str = f"{row_data['slab']:g}%"
+        vals = [
+            slab_str,
+            f"₹{row_data['cgst']:,.2f}",
+            f"₹{row_data['sgst']:,.2f}",
+            f"₹{row_data['total']:,.2f}"
+        ]
+        for c_idx, val_str in enumerate(vals):
+            cell = table.cell(r_idx, c_idx)
+            cell.text = val_str
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = bg
+            p = cell.text_frame.paragraphs[0]
+            p.font.size = Pt(12)
+            p.font.color.rgb = RGBColor(45, 55, 72)
+            p.alignment = PP_ALIGN.CENTER if c_idx == 0 else PP_ALIGN.RIGHT
+
+    # Total Row
+    tot_row_idx = len(slab_summary) + 1
+    tot_vals = [
+        "Total GST",
+        f"₹{tot_cgst_sum:,.2f}",
+        f"₹{tot_sgst_sum:,.2f}",
+        f"₹{tot_gst_sum:,.2f}"
+    ]
+    for c_idx, val_str in enumerate(tot_vals):
+        cell = table.cell(tot_row_idx, c_idx)
+        cell.text = val_str
+        cell.fill.solid()
+        cell.fill.fore_color.rgb = RGBColor(226, 232, 240)
+        p = cell.text_frame.paragraphs[0]
+        p.font.bold = True
+        p.font.size = Pt(13)
+        p.font.color.rgb = NAVY
+        p.alignment = PP_ALIGN.CENTER if c_idx == 0 else PP_ALIGN.RIGHT
+
     prs.save(file_path)
     return file_path
+

@@ -1,16 +1,59 @@
 import os
 import tempfile
-from typing import Dict, Any
+import logging
+from typing import Dict, Any, Optional, Tuple
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+
+logger = logging.getLogger(__name__)
+
+_REGISTERED_FONTS: Optional[Tuple[str, str]] = None
+
+def get_invoice_font_names() -> Tuple[str, str]:
+    """
+    Registers a TrueType font in ReportLab that includes full Unicode support for the Indian Rupee symbol (₹).
+    Returns (normal_font_name, bold_font_name).
+    """
+    global _REGISTERED_FONTS
+    if _REGISTERED_FONTS is not None:
+        return _REGISTERED_FONTS
+
+    # Candidate font pairs: (Prefix, RegularTTFPath, BoldTTFPath)
+    candidates = [
+        ("InvoiceSegoeUI", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf"),
+        ("InvoiceArial", "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
+        ("InvoiceCalibri", "C:/Windows/Fonts/calibri.ttf", "C:/Windows/Fonts/calibrib.ttf"),
+        ("InvoiceDejaVu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+        ("InvoiceLiberation", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+    ]
+
+    for prefix, reg_path, bold_path in candidates:
+        if os.path.exists(reg_path) and os.path.exists(bold_path):
+            norm_name = f"{prefix}-Regular"
+            bold_name = f"{prefix}-Bold"
+            try:
+                pdfmetrics.registerFont(TTFont(norm_name, reg_path))
+                pdfmetrics.registerFont(TTFont(bold_name, bold_path))
+                _REGISTERED_FONTS = (norm_name, bold_name)
+                logger.info(f"Registered ReportLab invoice TrueType fonts: {norm_name}, {bold_name}")
+                return _REGISTERED_FONTS
+            except Exception as ex:
+                logger.warning(f"Failed registering font pair ({reg_path}, {bold_path}): {ex}")
+
+    _REGISTERED_FONTS = ("Helvetica", "Helvetica-Bold")
+    return _REGISTERED_FONTS
 
 def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, str]) -> str:
     """
     Renders a GST-compliant PDF Tax Invoice for a finalized bill using ReportLab.
     Pulls shop info from preferences and bill metrics directly from database.
     """
+    norm_font, bold_font = get_invoice_font_names()
+
     bill = bill_data["bill"]
     items = bill_data["items"]
 
@@ -36,6 +79,7 @@ def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, 
     title_style = ParagraphStyle(
         'InvoiceTitle',
         parent=styles['Heading1'],
+        fontName=bold_font,
         fontSize=18,
         leading=22,
         textColor=colors.HexColor("#1A365D"),
@@ -44,6 +88,7 @@ def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, 
     subtitle_style = ParagraphStyle(
         'InvoiceSubtitle',
         parent=styles['Normal'],
+        fontName=norm_font,
         fontSize=9,
         leading=12,
         textColor=colors.HexColor("#4A5568")
@@ -51,14 +96,15 @@ def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, 
     bold_body = ParagraphStyle(
         'InvoiceBold',
         parent=styles['Normal'],
+        fontName=bold_font,
         fontSize=9,
         leading=11,
-        fontName="Helvetica-Bold",
         textColor=colors.HexColor("#2D3748")
     )
     normal_body = ParagraphStyle(
         'InvoiceBody',
         parent=styles['Normal'],
+        fontName=norm_font,
         fontSize=8,
         leading=10,
         textColor=colors.HexColor("#2D3748")

@@ -37,11 +37,14 @@ def test_pdf_invoice_generation(test_db):
         assert os.path.getsize(pdf_path) > 1000
 
 def test_pptx_deck_generation_with_data_and_empty_range(test_db):
+    from pptx import Presentation
     with get_db_connection(test_db) as conn:
         # 1. Empty Date Range Test
         pptx_empty = generate_pptx_analysis_deck_file(conn, "2020-01-01", "2020-01-02")
         assert os.path.exists(pptx_empty)
         assert os.path.getsize(pptx_empty) > 1000
+        prs_empty = Presentation(pptx_empty)
+        assert len(prs_empty.slides) == 1
 
         # 2. Date Range with Data
         with immediate_transaction(conn):
@@ -59,3 +62,9 @@ def test_pptx_deck_generation_with_data_and_empty_range(test_db):
         pptx_data = generate_pptx_analysis_deck_file(conn, today, today)
         assert os.path.exists(pptx_data)
         assert os.path.getsize(pptx_data) > 1000
+
+        prs_data = Presentation(pptx_data)
+        assert len(prs_data.slides) == 5
+        slide5_text = prs_data.slides[4].shapes[0].text_frame.text
+        assert "GST Breakdown" in slide5_text
+

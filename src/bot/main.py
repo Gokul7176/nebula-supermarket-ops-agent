@@ -1,8 +1,10 @@
 import os
 import sys
 import logging
+from typing import Any
 from dotenv import load_dotenv
 from telegram.ext import ApplicationBuilder, MessageHandler, filters
+from telegram.request import HTTPXRequest
 
 # Load environment variables
 load_dotenv()
@@ -31,11 +33,21 @@ def main() -> None:
     logger.info("Initializing SQLite database with WAL mode...")
     init_db()
 
-    # Build python-telegram-bot application
-    app = ApplicationBuilder().token(bot_token).build()
+    # Build python-telegram-bot application with custom timeouts to prevent bootstrap timeouts
+    request = HTTPXRequest(connect_timeout=20.0, read_timeout=20.0)
+    app = ApplicationBuilder().token(bot_token).request(request).build()
 
-    # Add text message handler (pure agentic loop dispatcher)
-    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_telegram_message))
+    # Add text/command message handler (pure agentic loop dispatcher)
+    app.add_handler(MessageHandler(filters.ALL, handle_telegram_message))
+
+    async def error_handler(update: object, context: Any) -> None:
+        import telegram.error
+        if isinstance(context.error, telegram.error.Conflict):
+            logger.error("Conflict Error: Another instance of the bot is already running with this TELEGRAM_BOT_TOKEN. Terminate other bot processes first.")
+        else:
+            logger.error(f"Unhandled exception in bot loop: {context.error}", exc_info=context.error)
+
+    app.add_error_handler(error_handler)
 
     logger.info("Kirana Store Ops Agent Bot is live and long-polling...")
     app.run_polling()

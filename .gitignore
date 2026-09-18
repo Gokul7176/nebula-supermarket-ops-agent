@@ -28,3 +28,5 @@ output/
 *.pdf
 *.pptx
 .pytest_cache/
+venv/
+scratch/

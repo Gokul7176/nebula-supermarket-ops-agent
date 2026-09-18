@@ -4,7 +4,7 @@ from src.services.stock_service import add_product_service, receive_stock_servic
 
 def add_product(name: str, brand: str, unit: str, is_loose: bool, hsn_code: str, gst_slab: float,
                 cost_price: float, sell_price: float, mrp: float, quantity: float,
-                reorder_level: float = 5.0) -> Dict[str, Any]:
+                reorder_level: Optional[float] = None) -> Dict[str, Any]:
     """
     Creates a new product SKU in the database with prices, HSN code, and GST slab.
     
@@ -19,12 +19,13 @@ def add_product(name: str, brand: str, unit: str, is_loose: bool, hsn_code: str,
         sell_price: Selling price per unit in INR
         mrp: MRP per unit in INR
         quantity: Initial stock quantity
-        reorder_level: Reorder alert quantity threshold
+        reorder_level: Optional reorder alert quantity threshold (defaults to 5.0 if omitted/None)
     """
+    r_level = 5.0 if reorder_level is None else float(reorder_level)
     data = {
         "name": name, "brand": brand, "unit": unit, "is_loose": is_loose,
         "hsn_code": hsn_code, "gst_slab": gst_slab, "cost_price": cost_price,
-        "sell_price": sell_price, "mrp": mrp, "quantity": quantity, "reorder_level": reorder_level
+        "sell_price": sell_price, "mrp": mrp, "quantity": quantity, "reorder_level": r_level
     }
     with get_db_connection() as conn:
         with immediate_transaction(conn):

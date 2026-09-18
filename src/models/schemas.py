@@ -17,7 +17,7 @@ class ProductCreate(BaseModel):
     sell_price: float = Field(..., ge=0, description="Selling price per unit in INR")
     mrp: float = Field(..., ge=0, description="Maximum Retail Price (MRP) per unit in INR")
     quantity: float = Field(..., ge=0, description="Initial stock quantity")
-    reorder_level: float = Field(5.0, ge=0, description="Reorder threshold quantity")
+    reorder_level: Optional[float] = Field(None, ge=0, description="Reorder threshold quantity (defaults to 5.0 if omitted)")
 
 class ReceiveStockInput(BaseModel):
     product_id_or_name: str = Field(..., description="Product ID or exact/partial product name")

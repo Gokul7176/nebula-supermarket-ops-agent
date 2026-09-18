@@ -23,12 +23,20 @@ CREATE TABLE IF NOT EXISTS products (
 -- Bills Table
 CREATE TABLE IF NOT EXISTS bills (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT,
     status TEXT NOT NULL DEFAULT 'draft' CHECK(status IN ('draft', 'finalized')),
     customer_name TEXT,
     payment_mode TEXT CHECK(payment_mode IN ('cash', 'upi', 'card', 'khata')),
     payment_reference TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     finalized_at TIMESTAMP
+);
+
+-- Active Draft Bill per Chat/Session
+CREATE TABLE IF NOT EXISTS active_draft_bills (
+    chat_id TEXT PRIMARY KEY,
+    bill_id INTEGER NOT NULL UNIQUE REFERENCES bills(id) ON DELETE CASCADE,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Bill Line Items Table

@@ -70,11 +70,15 @@ def test_below_cost_refusal_and_override(test_db):
 
         assert "priced below cost" in str(exc_info.value)
 
-        # Should succeed with override_below_cost=True
-        with immediate_transaction(conn):
-            fin = finalize_bill_service(conn, bill["bill"]["id"], override_below_cost=True)
-
-        assert fin["bill"]["status"] == "finalized"
+        # Should succeed with override_below_cost=True and explicit message authorization
+        from src.agent.context import current_user_message_var
+        token = current_user_message_var.set("Finalize bill with override below cost")
+        try:
+            with immediate_transaction(conn):
+                fin = finalize_bill_service(conn, bill["bill"]["id"], override_below_cost=True)
+            assert fin["bill"]["status"] == "finalized"
+        finally:
+            current_user_message_var.reset(token)
 
 def test_atomic_khata_finalization(test_db):
     with get_db_connection(test_db) as conn:

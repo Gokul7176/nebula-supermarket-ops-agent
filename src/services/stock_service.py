@@ -4,12 +4,16 @@ from src.db.connection import get_db_connection, immediate_transaction
 
 def add_product_service(conn: sqlite3.Connection, data: Dict[str, Any]) -> Dict[str, Any]:
     """Adds a new product SKU to the database inside a write transaction."""
+    product_data = dict(data)
+    if product_data.get("reorder_level") is None:
+        product_data["reorder_level"] = 5.0
+
     sql = """
     INSERT INTO products (name, brand, unit, is_loose, hsn_code, gst_slab, cost_price, sell_price, mrp, quantity, reorder_level)
     VALUES (:name, :brand, :unit, :is_loose, :hsn_code, :gst_slab, :cost_price, :sell_price, :mrp, :quantity, :reorder_level)
     """
     try:
-        cursor = conn.execute(sql, data)
+        cursor = conn.execute(sql, product_data)
         product_id = cursor.lastrowid
         row = conn.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
         return dict(row)
