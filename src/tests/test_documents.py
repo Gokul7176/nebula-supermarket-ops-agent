@@ -16,6 +16,10 @@ def test_db():
         yield db_path
 
 def test_pdf_invoice_generation(test_db):
+    from src.documents.pdf_invoice import get_invoice_font_names
+    norm_font, bold_font = get_invoice_font_names()
+    assert norm_font != "Helvetica", "A Unicode TrueType font must be registered for PDF currency rendering"
+
     with get_db_connection(test_db) as conn:
         with immediate_transaction(conn):
             add_product_service(conn, {
