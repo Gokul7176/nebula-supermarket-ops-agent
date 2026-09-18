@@ -40,6 +40,41 @@ def test_pdf_invoice_generation(test_db):
         assert os.path.exists(pdf_path)
         assert os.path.getsize(pdf_path) > 1000
 
+def test_pdf_invoice_rupee_font_embedding(test_db):
+    import re
+    from src.documents.pdf_invoice import generate_pdf_invoice_file, get_invoice_font_names
+
+    norm_font, bold_font = get_invoice_font_names()
+    assert "Helvetica" not in norm_font, "Helvetica must not be used as fallback"
+
+    with get_db_connection(test_db) as conn:
+        with immediate_transaction(conn):
+            add_product_service(conn, {
+                "name": "Test Item 1", "brand": "Brand A", "unit": "packet", "is_loose": False,
+                "hsn_code": "1001", "gst_slab": 12, "cost_price": 10, "sell_price": 14,
+                "mrp": 15, "quantity": 100, "reorder_level": 5
+            })
+        with immediate_transaction(conn):
+            b = start_bill_service(conn, "Rohan Sharma", payment_mode="upi")
+            add_item_to_bill_service(conn, b["bill"]["id"], "Test Item 1", quantity=6)
+            fin = finalize_bill_service(conn, b["bill"]["id"], payment_reference="UPI9876543210")
+
+        bill_details = get_bill_details_service(conn, fin["bill"]["id"])
+        prefs = {"shop_name": "Testing Kirana"}
+        pdf_path = generate_pdf_invoice_file(bill_details, prefs)
+
+    assert os.path.exists(pdf_path)
+
+    with open(pdf_path, 'rb') as f:
+        content = f.read().decode('latin-1')
+
+    base_fonts = set(re.findall(r'/BaseFont\s*/([A-Za-z0-9\+\-]+)', content))
+
+    for forbidden in ['Helvetica', 'Helvetica-Bold', 'Helvetica-Oblique', 'ZapfDingbats', 'Symbol']:
+        assert not any(forbidden in font_name for font_name in base_fonts), f"Forbidden font '{forbidden}' embedded in PDF: {base_fonts}"
+
+    assert any("DejaVu" in f or "FreeSans" in f or "Segoe" in f or "Arial" in f for f in base_fonts), f"Unicode TTF font missing in PDF: {base_fonts}"
+
 def test_pptx_deck_generation_with_data_and_empty_range(test_db):
     from pptx import Presentation
     with get_db_connection(test_db) as conn:

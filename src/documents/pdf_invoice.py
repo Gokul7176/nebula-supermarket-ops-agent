@@ -8,6 +8,8 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfgen.canvas import Canvas
+import reportlab.rl_config as rc
 
 logger = logging.getLogger(__name__)
 
@@ -15,39 +17,107 @@ _REGISTERED_FONTS: Optional[Tuple[str, str]] = None
 
 def get_invoice_font_names() -> Tuple[str, str]:
     """
-    Registers a TrueType font in ReportLab that includes full Unicode support for the Indian Rupee symbol (₹).
+    Registers a TrueType font family in ReportLab with full Unicode support for Indian Rupee symbol (₹).
     Returns (normal_font_name, bold_font_name).
     """
     global _REGISTERED_FONTS
     if _REGISTERED_FONTS is not None:
         return _REGISTERED_FONTS
 
-    # Candidate font pairs: (Prefix, RegularTTFPath, BoldTTFPath)
+    repo_fonts_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "fonts")
+
     candidates = [
-        ("InvoiceDejaVu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
-        ("InvoiceDejaVuAlt", "/usr/share/fonts/dejavu/DejaVuSans.ttf", "/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf"),
-        ("InvoiceFreeFont", "/usr/share/fonts/truetype/freefont/FreeSans.ttf", "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"),
-        ("InvoiceLiberation", "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
-        ("InvoiceSegoeUI", "C:/Windows/Fonts/segoeui.ttf", "C:/Windows/Fonts/segoeuib.ttf"),
-        ("InvoiceArial", "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf"),
-        ("InvoiceCalibri", "C:/Windows/Fonts/calibri.ttf", "C:/Windows/Fonts/calibrib.ttf"),
+        (
+            "InvoiceDejaVu",
+            os.path.join(repo_fonts_dir, "DejaVuSans.ttf"),
+            os.path.join(repo_fonts_dir, "DejaVuSans-Bold.ttf"),
+            os.path.join(repo_fonts_dir, "DejaVuSans-Oblique.ttf"),
+            os.path.join(repo_fonts_dir, "DejaVuSans-BoldOblique.ttf")
+        ),
+        (
+            "InvoiceDejaVuSys",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf"
+        ),
+        (
+            "InvoiceFreeFont",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansOblique.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBoldOblique.ttf"
+        ),
+        (
+            "InvoiceSegoeUI",
+            "C:/Windows/Fonts/segoeui.ttf",
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "C:/Windows/Fonts/segoeuii.ttf",
+            "C:/Windows/Fonts/segoeuiz.ttf"
+        ),
+        (
+            "InvoiceArial",
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/ariali.ttf",
+            "C:/Windows/Fonts/arialbi.ttf"
+        )
     ]
 
-    for prefix, reg_path, bold_path in candidates:
-        if os.path.exists(reg_path) and os.path.exists(bold_path):
-            norm_name = f"{prefix}-Regular"
-            bold_name = f"{prefix}-Bold"
+    for family_prefix, reg, bold, italic, bold_italic in candidates:
+        if os.path.exists(reg) and os.path.exists(bold):
+            norm_name = f"{family_prefix}-Regular"
+            bold_name = f"{family_prefix}-Bold"
+            italic_name = f"{family_prefix}-Italic" if os.path.exists(italic) else norm_name
+            bold_italic_name = f"{family_prefix}-BoldItalic" if os.path.exists(bold_italic) else bold_name
+
             try:
-                pdfmetrics.registerFont(TTFont(norm_name, reg_path))
-                pdfmetrics.registerFont(TTFont(bold_name, bold_path))
+                pdfmetrics.registerFont(TTFont(norm_name, reg))
+                pdfmetrics.registerFont(TTFont(bold_name, bold))
+                if os.path.exists(italic):
+                    pdfmetrics.registerFont(TTFont(italic_name, italic))
+                if os.path.exists(bold_italic):
+                    pdfmetrics.registerFont(TTFont(bold_italic_name, bold_italic))
+
+                pdfmetrics.registerFontFamily(
+                    family_prefix,
+                    normal=norm_name,
+                    bold=bold_name,
+                    italic=italic_name,
+                    boldItalic=bold_italic_name
+                )
+                pdfmetrics.registerFontFamily(
+                    norm_name,
+                    normal=norm_name,
+                    bold=bold_name,
+                    italic=italic_name,
+                    boldItalic=bold_italic_name
+                )
+                pdfmetrics.registerFontFamily(
+                    bold_name,
+                    normal=norm_name,
+                    bold=bold_name,
+                    italic=italic_name,
+                    boldItalic=bold_italic_name
+                )
+
+                rc.canvas_basefontname = norm_name
                 _REGISTERED_FONTS = (norm_name, bold_name)
-                logger.info(f"Registered ReportLab invoice TrueType fonts: {norm_name}, {bold_name}")
+                logger.info(f"Registered ReportLab Unicode font family '{family_prefix}': {norm_name}, {bold_name}")
                 return _REGISTERED_FONTS
             except Exception as ex:
-                logger.warning(f"Failed registering font pair ({reg_path}, {bold_path}): {ex}")
+                logger.warning(f"Failed registering font family ({reg}, {bold}): {ex}")
 
-    _REGISTERED_FONTS = ("Helvetica", "Helvetica-Bold")
-    return _REGISTERED_FONTS
+    raise RuntimeError("No Unicode-capable TrueType font found for PDF invoice generation!")
+
+class UnicodeInvoiceCanvas(Canvas):
+    """
+    Custom ReportLab Canvas that overrides default initial font from Helvetica to the registered Unicode font.
+    """
+    def __init__(self, *args, **kwargs):
+        norm_font, _ = get_invoice_font_names()
+        kwargs['initialFontName'] = norm_font
+        super().__init__(*args, **kwargs)
 
 def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, str]) -> str:
     """
@@ -123,6 +193,7 @@ def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, 
     ]
     header_table = Table(header_data, colWidths=[300, 240])
     header_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), norm_font),
         ('VALIGN', (0, 0), (-1, -1), 'TOP'),
         ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
@@ -157,6 +228,7 @@ def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, 
 
     items_table = Table(table_rows, colWidths=[20, 150, 45, 45, 55, 40, 50, 50, 65])
     items_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), norm_font),
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#EDF2F7")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#2D3748")),
         ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
@@ -177,16 +249,18 @@ def generate_pdf_invoice_file(bill_data: Dict[str, Any], preferences: Dict[str, 
     ]
     summary_table = Table(summary_data, colWidths=[150, 100])
     summary_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), norm_font),
         ('ALIGN', (0, 0), (-1, -1), 'RIGHT'),
         ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
     ]))
 
     wrapper_table = Table([[Paragraph("<i>Thank you for your business!</i>", subtitle_style), summary_table]], colWidths=[290, 250])
     wrapper_table.setStyle(TableStyle([
+        ('FONTNAME', (0, 0), (-1, -1), norm_font),
         ('VALIGN', (0, 0), (-1, -1), 'BOTTOM'),
         ('ALIGN', (1, 0), (1, 0), 'RIGHT'),
     ]))
     elements.append(wrapper_table)
 
-    doc.build(elements)
+    doc.build(elements, canvasmaker=UnicodeInvoiceCanvas)
     return file_path
