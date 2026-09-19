@@ -266,3 +266,33 @@ def test_comprehensive_telegram_html_formatting_cases():
     assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in out6 or "&lt;script&gt;alert('xss')&lt;/script&gt;" in out6
     assert "<div>" not in out6
     assert "<script>" not in out6
+
+def test_auto_inserted_sales_overview_header():
+    from src.bot.handlers import format_telegram_html
+
+    raw_summary_without_header = (
+        "Here is your sales summary for today:\n"
+        "• Total Sales Revenue: ₹492.66\n"
+        "• Total Finalized Bills: 8\n"
+        "• Total Tax Collected: ₹34.66\n\n"
+        "Items Sold\n"
+        "• Aashirvaad Atta 5kg: 1 unit — ₹304.50"
+    )
+
+    formatted = format_telegram_html(raw_summary_without_header)
+
+    # Must contain exactly one <b>📊 Sales Overview</b>
+    assert formatted.count("<b>📊 Sales Overview</b>") == 1
+    assert "<b>Total Sales Revenue:</b> ₹492.66" in formatted
+    assert "<b>Total Finalized Bills:</b> 8" in formatted
+    assert "<b>Total Tax Collected:</b> ₹34.66" in formatted
+
+    # When header is already provided by LLM, no duplicate header is added
+    raw_summary_with_header = (
+        "📊 Sales Overview\n"
+        "• Total Sales Revenue: ₹492.66\n"
+        "• Total Finalized Bills: 8"
+    )
+    formatted2 = format_telegram_html(raw_summary_with_header)
+    assert formatted2.count("<b>📊 Sales Overview</b>") == 1
+

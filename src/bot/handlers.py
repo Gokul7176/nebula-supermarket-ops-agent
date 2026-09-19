@@ -57,6 +57,17 @@ def format_telegram_html(text: str) -> str:
         'store operations analysis', 'executive summary'
     ]
 
+    has_sales_header = False
+    for line in lines:
+        l_str = line.strip()
+        l_clean = re.sub(r'^[^\w#]+', '', l_str).lower().rstrip(':').strip()
+        if l_str.startswith('#') and any(k in l_str.lower() for k in ['sales overview', 'sales summary', 'daily sales summary', 'sales report']):
+            has_sales_header = True
+            break
+        if l_clean in ['sales overview', 'sales summary', 'daily sales summary', 'sales report', 'executive summary']:
+            has_sales_header = True
+            break
+
     for line in lines:
         line_str = line.strip()
         if not line_str:
@@ -66,6 +77,12 @@ def format_telegram_html(text: str) -> str:
         # Skip horizontal rule separator lines (e.g. ---, \---, ────)
         if re.match(r'^[ \t]*[-─—]+[ \t]*$', line_str):
             continue
+
+        # Auto-insert <b>📊 Sales Overview</b> before first sales totals line if no sales header exists
+        if not has_sales_header:
+            if re.search(r'\b(total sales revenue|total revenue|finalized bills|total finalized bills|total tax collected)\b', line_str, re.IGNORECASE):
+                formatted_lines.append("<b>📊 Sales Overview</b>")
+                has_sales_header = True
 
         # Check if line is a header (# Heading, ## Heading, ### Heading)
         header_match = re.match(r'^#+[ \t]*(.*)', line_str)
