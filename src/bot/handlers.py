@@ -18,6 +18,8 @@ CONVERSATION_HISTORIES: Dict[str, List[Dict[str, Any]]] = {}
 def format_telegram_html(text: str) -> str:
     """
     Formats AI text output into clean, elegant Telegram HTML:
+    - Normalizes backslash-escaped Markdown tokens (\\**, \\---, \\#, \\_) while preserving file paths.
+    - Removes horizontal rule separators (---).
     - Escapes dynamic characters (<, >, &) safely.
     - Converts Markdown headings (# Heading, ## Heading) -> <b>[Emoji] Heading</b>
     - Converts Markdown bold (**text**) -> <b>text</b>
@@ -29,7 +31,10 @@ def format_telegram_html(text: str) -> str:
     if not text:
         return ""
 
-    # 1. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
+    # 1. Normalize backslash-escaped Markdown characters without touching file paths
+    text = re.sub(r'\\(\*\*|---|#|_|`|\*)', r'\1', text)
+
+    # 2. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
     cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
     cleaned = cleaned.replace('```', '')
 
@@ -40,6 +45,10 @@ def format_telegram_html(text: str) -> str:
         line_str = line.strip()
         if not line_str:
             formatted_lines.append("")
+            continue
+
+        # Skip horizontal rule separator lines (e.g. --- or \---)
+        if re.match(r'^[ \t]*---+[ \t]*$', line_str):
             continue
 
         # Check if line is a header (# Heading, ## Heading, ### Heading)
@@ -80,8 +89,8 @@ def format_telegram_html(text: str) -> str:
         else:
             line_content = line_str
 
-        # Parse inline markdown elements: **bold**, __italic__, `code`
-        parts = re.split(r'(\*\*.*?\*\*|__.*?__|`.*?`)', line_content)
+        # Parse inline markdown elements: **bold**, __italic__, _italic_, `code`
+        parts = re.split(r'(\*\*.*?\*\*|__.*?__|(?<![a-zA-Z0-9])_.*?_(?![a-zA-Z0-9])|`.*?`)', line_content)
         line_out = []
         for part in parts:
             if part.startswith("**") and part.endswith("**") and len(part) >= 4:
@@ -89,6 +98,9 @@ def format_telegram_html(text: str) -> str:
                 line_out.append(f"<b>{html.escape(inner)}</b>")
             elif part.startswith("__") and part.endswith("__") and len(part) >= 4:
                 inner = part[2:-2]
+                line_out.append(f"<b>{html.escape(inner)}</b>")
+            elif part.startswith("_") and part.endswith("_") and len(part) >= 2:
+                inner = part[1:-1]
                 line_out.append(f"<b>{html.escape(inner)}</b>")
             elif part.startswith("`") and part.endswith("`") and len(part) >= 2:
                 inner = part[1:-1]
@@ -115,6 +127,8 @@ def format_telegram_html(text: str) -> str:
 def clean_markdown(text: str) -> str:
     """
     Cleans raw Markdown formatting syntax from AI responses for plain text presentation:
+    - Normalizes backslash-escaped Markdown tokens (\\**, \\---, \\#, \\_) while preserving file paths.
+    - Removes horizontal rule separators (---).
     - Headings (# Heading, ## Heading, etc.) -> Heading
     - Bold markers (**text**) -> text
     - Underscore emphasis (__text__) -> text
@@ -125,18 +139,26 @@ def clean_markdown(text: str) -> str:
     if not text:
         return ""
 
+    # 1. Normalize backslash-escaped Markdown characters without touching file paths
+    text = re.sub(r'\\(\*\*|---|#|_|`|\*)', r'\1', text)
+
     cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
     cleaned = cleaned.replace('```', '')
 
     lines = cleaned.splitlines()
     processed_lines = []
     for line in lines:
-        line = re.sub(r'^[ \t]*#+[ \t]*', '', line)
-        processed_lines.append(line.rstrip())
+        line_str = line.rstrip()
+        # Skip horizontal rule separator lines
+        if re.match(r'^[ \t]*---+[ \t]*$', line_str):
+            continue
+        line_str = re.sub(r'^[ \t]*#+[ \t]*', '', line_str)
+        processed_lines.append(line_str)
 
     cleaned = "\n".join(processed_lines)
     cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)
     cleaned = re.sub(r'__(.*?)__', r'\1', cleaned)
+    cleaned = re.sub(r'(?<![a-zA-Z0-9])_(.*?)_(?![a-zA-Z0-9])', r'\1', cleaned)
     cleaned = re.sub(r'`([^`\n]+)`', r'\1', cleaned)
 
     return cleaned.strip()

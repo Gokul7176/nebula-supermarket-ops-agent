@@ -149,3 +149,44 @@ def test_format_telegram_html():
     assert "<v1>" not in formatted
     # 7. Filenames and paths intact
     assert "C:\\nebula\\output\\invoice_bill_1.pdf" in formatted
+
+def test_escaped_markdown_normalization():
+    from src.bot.handlers import format_telegram_html, clean_markdown
+
+    live_regression_input = (
+        "\\# Daily Sales Summary\n"
+        "• \\**Total Sales Revenue:\\** ₹492.66\n"
+        "• \\**Finalized Bills:\\** 8\n"
+        "• \\**Total Tax Collected:\\** ₹34.66\n\n"
+        "\\---\n\n"
+        "\\**📦 Items Sold:\\**\n"
+        "• \\**Aashirvaad Atta 5kg:\\** 1 sold — ₹304.50\n"
+        "• \\**Maggi 70g:\\** 12 sold — ₹188.16\n\n"
+        "\\**Payment Breakdown:\\**\n"
+        "• \\**Cash:\\** ₹429.94\n"
+        "• \\**UPI:\\** ₹62.72\n"
+        "Path: C:\\Users\\Test\\file.pdf"
+    )
+
+    formatted = format_telegram_html(live_regression_input)
+
+    # A. Escaped bold becomes <b>
+    assert "<b>Total Sales Revenue:</b> ₹492.66" in formatted
+    # B. Escaped heading becomes bold HTML heading with emoji
+    assert "<b>📊 Daily Sales Summary</b>" in formatted
+    # C. Escaped horizontal rule is removed
+    assert "---" not in formatted
+    # E. Legitimate backslashes in Windows file paths are preserved
+    assert "C:\\Users\\Test\\file.pdf" in formatted
+    # F. Telegram HTML output contains no malformed \<b>, \</b>, \**, \---
+    assert "\\<b>" not in formatted
+    assert "\\</b>" not in formatted
+    assert "\\**" not in formatted
+    assert "\\---" not in formatted
+
+    # Test clean_markdown fallback path
+    cleaned = clean_markdown(live_regression_input)
+    assert "\\**" not in cleaned
+    assert "\\---" not in cleaned
+    assert "Total Sales Revenue:" in cleaned
+    assert "C:\\Users\\Test\\file.pdf" in cleaned
