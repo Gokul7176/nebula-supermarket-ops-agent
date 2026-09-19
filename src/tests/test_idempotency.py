@@ -236,7 +236,7 @@ def test_comprehensive_telegram_html_formatting_cases():
     out3 = format_telegram_html("📊 Sales Overview\n📦 Items Sold\nPayment Breakdown\nBill #5 — Madhavan\nInventory\nStock Warning")
     assert "<b>📊 Sales Overview</b>" in out3
     assert "<b>📦 Items Sold</b>" in out3
-    assert "<b>📊 Payment Breakdown</b>" in out3
+    assert "<b>💳 Payment Breakdown</b>" in out3
     assert "<b>🧾 Bill #5 — Madhavan</b>" in out3
     assert "<b>📦 Inventory</b>" in out3
     assert "<b>⚠️ Stock Warning</b>" in out3

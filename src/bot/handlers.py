@@ -76,8 +76,12 @@ def format_telegram_html(text: str) -> str:
 
             emoji = ""
             h_lower = header_text.lower()
-            if not any(c in header_text for c in ['📊', '🧾', '📦', '💰', '⚠️', '✅']):
-                if any(k in h_lower for k in ['sales', 'summary', 'report', 'close', 'daily', 'deck', 'analysis']):
+            if not any(c in header_text for c in ['📊', '🧾', '📦', '💳', '💰', '⚠️', '✅']):
+                if any(k in h_lower for k in ['warning', 'error', 'refusal', 'caution', 'below cost', 'oversell']):
+                    emoji = "⚠️ "
+                elif any(k in h_lower for k in ['payment']):
+                    emoji = "💳 "
+                elif any(k in h_lower for k in ['sales', 'summary', 'overview', 'report', 'close', 'daily', 'deck', 'analysis']):
                     emoji = "📊 "
                 elif any(k in h_lower for k in ['bill', 'invoice', 'draft']):
                     emoji = "🧾 "
@@ -85,8 +89,6 @@ def format_telegram_html(text: str) -> str:
                     emoji = "📦 "
                 elif any(k in h_lower for k in ['khata', 'balance', 'credit', 'ledger']):
                     emoji = "💰 "
-                elif any(k in h_lower for k in ['warning', 'error', 'refusal', 'caution', 'below cost', 'oversell']):
-                    emoji = "⚠️ "
                 elif any(k in h_lower for k in ['success', 'created', 'finalized', 'added']):
                     emoji = "✅ "
 
@@ -108,10 +110,12 @@ def format_telegram_html(text: str) -> str:
         if is_standalone_header and not clean_line_text.startswith("• "):
             escaped_title = html.escape(clean_line_text)
             emoji = ""
-            if not any(c in clean_line_text for c in ['📊', '🧾', '📦', '💰', '⚠️', '✅']):
+            if not any(c in clean_line_text for c in ['📊', '🧾', '📦', '💳', '💰', '⚠️', '✅']):
                 if any(k in clean_lower for k in ['warning', 'error', 'refusal', 'caution', 'below cost', 'oversell']):
                     emoji = "⚠️ "
-                elif any(k in clean_lower for k in ['sales', 'summary', 'report', 'close', 'daily', 'payment']):
+                elif any(k in clean_lower for k in ['payment']):
+                    emoji = "💳 "
+                elif any(k in clean_lower for k in ['sales', 'summary', 'overview', 'report', 'close', 'daily']):
                     emoji = "📊 "
                 elif any(k in clean_lower for k in ['bill', 'invoice', 'draft']):
                     emoji = "🧾 "
@@ -119,8 +123,8 @@ def format_telegram_html(text: str) -> str:
                     emoji = "📦 "
                 elif any(k in clean_lower for k in ['khata', 'balance', 'credit', 'ledger']):
                     emoji = "💰 "
-                elif any(k in clean_lower for k in ['warning', 'error', 'refusal', 'caution']):
-                    emoji = "⚠️ "
+                elif any(k in clean_lower for k in ['success', 'created', 'finalized', 'added']):
+                    emoji = "✅ "
 
             formatted_lines.append(f"<b>{emoji}{escaped_title}</b>")
             continue
