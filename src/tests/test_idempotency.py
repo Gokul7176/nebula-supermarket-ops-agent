@@ -82,3 +82,31 @@ async def test_document_timeout_suppression_in_handler(test_db, monkeypatch):
     with get_db_connection(test_db) as conn:
         row = conn.execute("SELECT status FROM processed_updates WHERE telegram_update_id = 777888").fetchone()
         assert row["status"] == "succeeded"
+
+def test_clean_markdown_formatting():
+    from src.bot.handlers import clean_markdown
+
+    raw_input = (
+        "## Daily Sales Summary\n"
+        "**Products Sold:**\n"
+        "1. **Aashirvaad Atta 5kg:** 1 unit sold\n\n"
+        "__Note__: Payment via `UPI`\n"
+        "```text\n"
+        "Bill #1 finalized\n"
+        "```"
+    )
+
+    expected_output = (
+        "Daily Sales Summary\n"
+        "Products Sold:\n"
+        "1. Aashirvaad Atta 5kg: 1 unit sold\n\n"
+        "Note: Payment via UPI\n"
+        "Bill #1 finalized"
+    )
+
+    cleaned = clean_markdown(raw_input)
+    assert cleaned == expected_output
+    assert "##" not in cleaned
+    assert "**" not in cleaned
+    assert "__" not in cleaned
+    assert "`" not in cleaned

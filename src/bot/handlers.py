@@ -1,3 +1,4 @@
+import re
 import os
 import logging
 import asyncio
@@ -12,6 +13,44 @@ logger = logging.getLogger(__name__)
 
 # In-memory store for Telegram chat LLM conversation context
 CONVERSATION_HISTORIES: Dict[str, List[Dict[str, Any]]] = {}
+
+def clean_markdown(text: str) -> str:
+    """
+    Cleans raw Markdown formatting syntax from AI responses for clean Telegram presentation:
+    - Headings (# Heading, ## Heading, etc.) -> Heading
+    - Bold markers (**text**) -> text
+    - Underscore emphasis (__text__) -> text
+    - Inline code (`text`) -> text
+    - Code fences (```text ... ```) -> inner content
+    - Preserves clean line breaks and list structures.
+    """
+    if not text:
+        return ""
+
+    # 1. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
+    cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
+    cleaned = cleaned.replace('```', '')
+
+    # 2. Process line by line for headings and trailing whitespace
+    lines = cleaned.splitlines()
+    processed_lines = []
+    for line in lines:
+        # Strip heading syntax (# Heading, ## Heading, ### Heading)
+        line = re.sub(r'^[ \t]*#+[ \t]*', '', line)
+        processed_lines.append(line.rstrip())
+
+    cleaned = "\n".join(processed_lines)
+
+    # 3. Bold markers: **text** -> text
+    cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)
+
+    # 4. Underscore emphasis: __text__ -> text
+    cleaned = re.sub(r'__(.*?)__', r'\1', cleaned)
+
+    # 5. Inline backtick code: `text` -> text
+    cleaned = re.sub(r'`([^`\n]+)`', r'\1', cleaned)
+
+    return cleaned.strip()
 
 def clear_chat_conversation_history(chat_id: str) -> None:
     """Clears ONLY in-memory LLM conversation context for a chat. Does not touch DB state."""
@@ -55,18 +94,20 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
             chat_id=chat_id
         )
 
+        formatted_reply = clean_markdown(reply_text)
+
         # Update in-memory conversation history
         if chat_id not in CONVERSATION_HISTORIES:
             CONVERSATION_HISTORIES[chat_id] = []
         CONVERSATION_HISTORIES[chat_id].append({"role": "user", "text": user_text})
-        CONVERSATION_HISTORIES[chat_id].append({"role": "model", "text": reply_text})
+        CONVERSATION_HISTORIES[chat_id].append({"role": "model", "text": formatted_reply})
 
         # Limit window size to 20 messages
         if len(CONVERSATION_HISTORIES[chat_id]) > 20:
             CONVERSATION_HISTORIES[chat_id] = CONVERSATION_HISTORIES[chat_id][-20:]
 
         # Send Text Response to Telegram
-        await update.message.reply_text(reply_text)
+        await update.message.reply_text(formatted_reply)
 
         # Send any generated document files (PDF Invoice / PPTX Deck)
         for fpath in file_paths:
@@ -87,7 +128,7 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
                         raise
 
         # Mark update succeeded
-        mark_update_succeeded(update_id, reply_text)
+        mark_update_succeeded(update_id, formatted_reply)
 
     except Exception as e:
         logger.error(f"Error handling update_id #{update_id}: {e}", exc_info=True)
