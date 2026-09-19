@@ -190,3 +190,73 @@ def test_escaped_markdown_normalization():
     assert "\\---" not in cleaned
     assert "Total Sales Revenue:" in cleaned
     assert "C:\\Users\\Test\\file.pdf" in cleaned
+
+@pytest.mark.asyncio
+async def test_conversation_history_stores_raw_reply_text(test_db, monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+    from src.bot.handlers import handle_telegram_message, CONVERSATION_HISTORIES
+
+    raw_agent_reply = "Here is your summary:\n## Daily Sales Summary\n**Total:** ₹100"
+
+    monkeypatch.setattr(
+        "src.bot.handlers.process_user_message_agent",
+        lambda user_text, conversation_history=None, chat_id="default": (
+            raw_agent_reply,
+            []
+        )
+    )
+
+    update = MagicMock()
+    update.update_id = 889900
+    update.message.text = "Show sales"
+    update.effective_chat.id = 998877
+    update.message.reply_text = AsyncMock()
+
+    await handle_telegram_message(update, None)
+
+    # Verify that stored conversation history contains raw_agent_reply, NOT formatted HTML
+    history = CONVERSATION_HISTORIES.get("998877", [])
+    assert len(history) >= 2
+    model_msg = [m for m in history if m["role"] == "model"][-1]
+    assert model_msg["text"] == raw_agent_reply
+    assert "<b>" not in model_msg["text"]
+
+def test_comprehensive_telegram_html_formatting_cases():
+    from src.bot.handlers import format_telegram_html
+
+    # 1. General labels bolding
+    out1 = format_telegram_html("Finalized Bills: 8")
+    assert "<b>Finalized Bills:</b> 8" in out1
+
+    # 2. Bullet labels bolding
+    out2 = format_telegram_html("• Cash: ₹351.54")
+    assert "• <b>Cash:</b> ₹351.54" in out2
+
+    # 3. Standalone section titles
+    out3 = format_telegram_html("Items Sold\nPayment Breakdown\nBill #5 — Madhavan\nInventory\nStock Warning")
+    assert "<b>📦 Items Sold</b>" in out3
+    assert "<b>📊 Payment Breakdown</b>" in out3
+    assert "<b>🧾 Bill #5 — Madhavan</b>" in out3
+    assert "<b>📦 Inventory</b>" in out3
+    assert "<b>⚠️ Stock Warning</b>" in out3
+
+    # 4. Legacy HTML & Escaped HTML
+    out4 = format_telegram_html("<b>Total:</b> ₹100\n&lt;b&gt;Customer:&lt;/b&gt; Ramesh")
+    assert "<b>Total:</b> ₹100" in out4
+    assert "<b>Customer:</b> Ramesh" in out4
+    assert "&lt;b&gt;" not in out4
+    assert "\\<b>" not in out4
+
+    # 5. Separator removal
+    out5 = format_telegram_html("Line 1\n---\n\\---\n────\nLine 2")
+    assert "---" not in out5
+    assert "────" not in out5
+    assert "Line 1\nLine 2" in out5
+
+    # 6. HTML Safety: Only <b>, <strong>, <code> recognized; arbitrary tags escaped
+    out6 = format_telegram_html("<b>Total:</b> <div>test</div> & <script>alert('xss')</script>")
+    assert "<b>Total:</b>" in out6
+    assert "&lt;div&gt;test&lt;/div&gt;" in out6
+    assert "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;" in out6 or "&lt;script&gt;alert('xss')&lt;/script&gt;" in out6
+    assert "<div>" not in out6
+    assert "<script>" not in out6

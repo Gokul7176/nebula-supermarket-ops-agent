@@ -19,27 +19,42 @@ def format_telegram_html(text: str) -> str:
     """
     Formats AI text output into clean, elegant Telegram HTML:
     - Normalizes backslash-escaped Markdown tokens (\\**, \\---, \\#, \\_) while preserving file paths.
-    - Removes horizontal rule separators (---).
-    - Escapes dynamic characters (<, >, &) safely.
+    - Normalizes legacy HTML tags (<b>, <strong>, &lt;b&gt;) to avoid double-escaping.
+    - Removes horizontal rule separators (---, ────).
     - Converts Markdown headings (# Heading, ## Heading) -> <b>[Emoji] Heading</b>
-    - Converts Markdown bold (**text**) -> <b>text</b>
-    - Converts Markdown italic/underscore (__text__) -> <b>text</b>
-    - Formats key labels (Total:, Payment:, Customer:, etc.) -> <b>Label:</b>
+    - Converts standalone section headers (Items Sold, Payment Breakdown, Bill #5 — Madhavan) -> <b>[Emoji] Header</b>
+    - Formats key labels (Label: value) -> <b>Label:</b> value
     - Converts bullet list items (* or -) -> • 
     - Removes raw Markdown markers (##, **, __, `)
     """
     if not text:
         return ""
 
-    # 1. Normalize backslash-escaped Markdown characters without touching file paths
+    # 1. Normalize escaped HTML entities like &lt;b&gt; or &lt;strong&gt; first if present
+    text = re.sub(r'&lt;b&gt;(.*?)&lt;/b&gt;', r'**\1**', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'&lt;strong&gt;(.*?)&lt;/strong&gt;', r'**\1**', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'&lt;code&gt;(.*?)&lt;/code&gt;', r'`\1`', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Normalize existing raw supported HTML tags like <b>, <strong>, or <code>
+    text = re.sub(r'<(b|strong)>(.*?)</\1>', r'**\2**', text, flags=re.IGNORECASE | re.DOTALL)
+    text = re.sub(r'<code>(.*?)</code>', r'`\1`', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # 2. Normalize backslash-escaped Markdown characters without touching Windows file paths
     text = re.sub(r'\\(\*\*|---|#|_|`|\*)', r'\1', text)
 
-    # 2. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
+    # 3. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
     cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
     cleaned = cleaned.replace('```', '')
 
     lines = cleaned.splitlines()
     formatted_lines = []
+
+    HEADER_KEYWORDS = [
+        'daily sales summary', 'sales summary', 'items sold', 'sold items', 'products sold',
+        'payment breakdown', 'payment mode breakdown', 'payment mode split', 'inventory',
+        'stock health', 'stock warning', 'stock check', 'khata', 'khata balance',
+        'store operations analysis', 'executive summary'
+    ]
 
     for line in lines:
         line_str = line.strip()
@@ -47,8 +62,8 @@ def format_telegram_html(text: str) -> str:
             formatted_lines.append("")
             continue
 
-        # Skip horizontal rule separator lines (e.g. --- or \---)
-        if re.match(r'^[ \t]*---+[ \t]*$', line_str):
+        # Skip horizontal rule separator lines (e.g. ---, \---, ────)
+        if re.match(r'^[ \t]*[-─—]+[ \t]*$', line_str):
             continue
 
         # Check if line is a header (# Heading, ## Heading, ### Heading)
@@ -58,7 +73,6 @@ def format_telegram_html(text: str) -> str:
             header_text = re.sub(r'\*\*(.*?)\*\*', r'\1', header_text)
             escaped_header = html.escape(header_text)
 
-            # Assign contextual emoji if not present in header text
             emoji = ""
             h_lower = header_text.lower()
             if not any(c in header_text for c in ['📊', '🧾', '📦', '💰', '⚠️', '✅']):
@@ -78,7 +92,37 @@ def format_telegram_html(text: str) -> str:
             formatted_lines.append(f"<b>{emoji}{escaped_header}</b>")
             continue
 
-        # Check if line is a bullet item (* item or - item)
+        # Check if line is a standalone section header (e.g. Items Sold, Payment Breakdown, Bill #5 — Madhavan)
+        clean_line_text = re.sub(r'\*\*(.*?)\*\*', r'\1', line_str).strip()
+        clean_lower = clean_line_text.lower()
+
+        is_standalone_header = False
+        if clean_lower in HEADER_KEYWORDS or clean_lower.rstrip(':') in HEADER_KEYWORDS:
+            is_standalone_header = True
+        elif re.match(r'^bill\s*#?\d+', clean_lower):
+            is_standalone_header = True
+
+        if is_standalone_header and not clean_line_text.startswith("• "):
+            escaped_title = html.escape(clean_line_text)
+            emoji = ""
+            if not any(c in clean_line_text for c in ['📊', '🧾', '📦', '💰', '⚠️', '✅']):
+                if any(k in clean_lower for k in ['warning', 'error', 'refusal', 'caution', 'below cost', 'oversell']):
+                    emoji = "⚠️ "
+                elif any(k in clean_lower for k in ['sales', 'summary', 'report', 'close', 'daily', 'payment']):
+                    emoji = "📊 "
+                elif any(k in clean_lower for k in ['bill', 'invoice', 'draft']):
+                    emoji = "🧾 "
+                elif any(k in clean_lower for k in ['stock', 'inventory', 'product', 'item']):
+                    emoji = "📦 "
+                elif any(k in clean_lower for k in ['khata', 'balance', 'credit', 'ledger']):
+                    emoji = "💰 "
+                elif any(k in clean_lower for k in ['warning', 'error', 'refusal', 'caution']):
+                    emoji = "⚠️ "
+
+            formatted_lines.append(f"<b>{emoji}{escaped_title}</b>")
+            continue
+
+        # Check if line is a bullet item (* item or - item or • item)
         bullet_prefix = ""
         if re.match(r'^[*-][ \t]+', line_str):
             bullet_prefix = "• "
@@ -110,15 +154,13 @@ def format_telegram_html(text: str) -> str:
 
         processed_str = "".join(line_out)
 
-        # Bold key labels at line start if not already bolded
+        # General Label Detection: Bold any line (or bullet content) that starts with "Label:"
         if not processed_str.startswith("<b>"):
-            label_match = re.match(r'^([A-Za-z0-9\s/]+:)(.*)', processed_str)
+            label_match = re.match(r'^([A-Za-z0-9\s/#—-]+:)(.*)', processed_str)
             if label_match:
                 lbl = label_match.group(1)
                 rest = label_match.group(2)
-                lbl_lower = lbl.lower()
-                if any(k in lbl_lower for k in ['total', 'payment', 'customer', 'product', 'sold', 'requested', 'available', 'balance', 'mode', 'status', 'brand', 'price', 'gst']):
-                    processed_str = f"<b>{lbl}</b>{rest}"
+                processed_str = f"<b>{lbl}</b>{rest}"
 
         formatted_lines.append(f"{bullet_prefix}{processed_str}")
 
@@ -128,10 +170,11 @@ def clean_markdown(text: str) -> str:
     """
     Cleans raw Markdown formatting syntax from AI responses for plain text presentation:
     - Normalizes backslash-escaped Markdown tokens (\\**, \\---, \\#, \\_) while preserving file paths.
-    - Removes horizontal rule separators (---).
+    - Removes horizontal rule separators (---, ────).
+    - Strips legacy HTML tags (<b>, <strong>, <code>, &lt;b&gt;).
     - Headings (# Heading, ## Heading, etc.) -> Heading
     - Bold markers (**text**) -> text
-    - Underscore emphasis (__text__) -> text
+    - Underscore emphasis (__text__ / _text_) -> text
     - Inline code (`text`) -> text
     - Code fences (```text ... ```) -> inner content
     - Preserves clean line breaks and list structures.
@@ -139,7 +182,11 @@ def clean_markdown(text: str) -> str:
     if not text:
         return ""
 
-    # 1. Normalize backslash-escaped Markdown characters without touching file paths
+    # Normalize escaped HTML entities & raw tags
+    text = re.sub(r'&lt;/?(b|strong|code)&gt;', '', text, flags=re.IGNORECASE)
+    text = re.sub(r'</?(b|strong|code)>', '', text, flags=re.IGNORECASE)
+
+    # Normalize backslash-escaped Markdown characters without touching file paths
     text = re.sub(r'\\(\*\*|---|#|_|`|\*)', r'\1', text)
 
     cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
@@ -149,8 +196,7 @@ def clean_markdown(text: str) -> str:
     processed_lines = []
     for line in lines:
         line_str = line.rstrip()
-        # Skip horizontal rule separator lines
-        if re.match(r'^[ \t]*---+[ \t]*$', line_str):
+        if re.match(r'^[ \t]*[-─—]+[ \t]*$', line_str):
             continue
         line_str = re.sub(r'^[ \t]*#+[ \t]*', '', line_str)
         processed_lines.append(line_str)
@@ -210,11 +256,11 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
 
         formatted_reply = format_telegram_html(reply_text)
 
-        # Update in-memory conversation history
+        # Update in-memory conversation history - STORE RAW reply_text NOT formatted_reply
         if chat_id not in CONVERSATION_HISTORIES:
             CONVERSATION_HISTORIES[chat_id] = []
         CONVERSATION_HISTORIES[chat_id].append({"role": "user", "text": user_text})
-        CONVERSATION_HISTORIES[chat_id].append({"role": "model", "text": formatted_reply})
+        CONVERSATION_HISTORIES[chat_id].append({"role": "model", "text": reply_text})
 
         # Limit window size to 20 messages
         if len(CONVERSATION_HISTORIES[chat_id]) > 20:
