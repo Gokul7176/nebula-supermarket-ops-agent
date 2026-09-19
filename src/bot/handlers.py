@@ -1,5 +1,6 @@
 import re
 import os
+import html
 import logging
 import asyncio
 from typing import Dict, List, Any
@@ -14,9 +15,106 @@ logger = logging.getLogger(__name__)
 # In-memory store for Telegram chat LLM conversation context
 CONVERSATION_HISTORIES: Dict[str, List[Dict[str, Any]]] = {}
 
+def format_telegram_html(text: str) -> str:
+    """
+    Formats AI text output into clean, elegant Telegram HTML:
+    - Escapes dynamic characters (<, >, &) safely.
+    - Converts Markdown headings (# Heading, ## Heading) -> <b>[Emoji] Heading</b>
+    - Converts Markdown bold (**text**) -> <b>text</b>
+    - Converts Markdown italic/underscore (__text__) -> <b>text</b>
+    - Formats key labels (Total:, Payment:, Customer:, etc.) -> <b>Label:</b>
+    - Converts bullet list items (* or -) -> • 
+    - Removes raw Markdown markers (##, **, __, `)
+    """
+    if not text:
+        return ""
+
+    # 1. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
+    cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
+    cleaned = cleaned.replace('```', '')
+
+    lines = cleaned.splitlines()
+    formatted_lines = []
+
+    for line in lines:
+        line_str = line.strip()
+        if not line_str:
+            formatted_lines.append("")
+            continue
+
+        # Check if line is a header (# Heading, ## Heading, ### Heading)
+        header_match = re.match(r'^#+[ \t]*(.*)', line_str)
+        if header_match:
+            header_text = header_match.group(1).strip()
+            header_text = re.sub(r'\*\*(.*?)\*\*', r'\1', header_text)
+            escaped_header = html.escape(header_text)
+
+            # Assign contextual emoji if not present in header text
+            emoji = ""
+            h_lower = header_text.lower()
+            if not any(c in header_text for c in ['📊', '🧾', '📦', '💰', '⚠️', '✅']):
+                if any(k in h_lower for k in ['sales', 'summary', 'report', 'close', 'daily', 'deck', 'analysis']):
+                    emoji = "📊 "
+                elif any(k in h_lower for k in ['bill', 'invoice', 'draft']):
+                    emoji = "🧾 "
+                elif any(k in h_lower for k in ['stock', 'inventory', 'product', 'item']):
+                    emoji = "📦 "
+                elif any(k in h_lower for k in ['khata', 'balance', 'credit', 'ledger']):
+                    emoji = "💰 "
+                elif any(k in h_lower for k in ['warning', 'error', 'refusal', 'caution', 'below cost', 'oversell']):
+                    emoji = "⚠️ "
+                elif any(k in h_lower for k in ['success', 'created', 'finalized', 'added']):
+                    emoji = "✅ "
+
+            formatted_lines.append(f"<b>{emoji}{escaped_header}</b>")
+            continue
+
+        # Check if line is a bullet item (* item or - item)
+        bullet_prefix = ""
+        if re.match(r'^[*-][ \t]+', line_str):
+            bullet_prefix = "• "
+            line_content = re.sub(r'^[*-][ \t]+', '', line_str)
+        elif line_str.startswith("• "):
+            bullet_prefix = "• "
+            line_content = line_str[2:]
+        else:
+            line_content = line_str
+
+        # Parse inline markdown elements: **bold**, __italic__, `code`
+        parts = re.split(r'(\*\*.*?\*\*|__.*?__|`.*?`)', line_content)
+        line_out = []
+        for part in parts:
+            if part.startswith("**") and part.endswith("**") and len(part) >= 4:
+                inner = part[2:-2]
+                line_out.append(f"<b>{html.escape(inner)}</b>")
+            elif part.startswith("__") and part.endswith("__") and len(part) >= 4:
+                inner = part[2:-2]
+                line_out.append(f"<b>{html.escape(inner)}</b>")
+            elif part.startswith("`") and part.endswith("`") and len(part) >= 2:
+                inner = part[1:-1]
+                line_out.append(f"<code>{html.escape(inner)}</code>")
+            else:
+                line_out.append(html.escape(part))
+
+        processed_str = "".join(line_out)
+
+        # Bold key labels at line start if not already bolded
+        if not processed_str.startswith("<b>"):
+            label_match = re.match(r'^([A-Za-z0-9\s/]+:)(.*)', processed_str)
+            if label_match:
+                lbl = label_match.group(1)
+                rest = label_match.group(2)
+                lbl_lower = lbl.lower()
+                if any(k in lbl_lower for k in ['total', 'payment', 'customer', 'product', 'sold', 'requested', 'available', 'balance', 'mode', 'status', 'brand', 'price', 'gst']):
+                    processed_str = f"<b>{lbl}</b>{rest}"
+
+        formatted_lines.append(f"{bullet_prefix}{processed_str}")
+
+    return "\n".join(formatted_lines).strip()
+
 def clean_markdown(text: str) -> str:
     """
-    Cleans raw Markdown formatting syntax from AI responses for clean Telegram presentation:
+    Cleans raw Markdown formatting syntax from AI responses for plain text presentation:
     - Headings (# Heading, ## Heading, etc.) -> Heading
     - Bold markers (**text**) -> text
     - Underscore emphasis (__text__) -> text
@@ -27,27 +125,18 @@ def clean_markdown(text: str) -> str:
     if not text:
         return ""
 
-    # 1. Remove code fence markers (e.g. ```markdown\n...``` -> ...)
     cleaned = re.sub(r'```[a-zA-Z]*\n?', '', text)
     cleaned = cleaned.replace('```', '')
 
-    # 2. Process line by line for headings and trailing whitespace
     lines = cleaned.splitlines()
     processed_lines = []
     for line in lines:
-        # Strip heading syntax (# Heading, ## Heading, ### Heading)
         line = re.sub(r'^[ \t]*#+[ \t]*', '', line)
         processed_lines.append(line.rstrip())
 
     cleaned = "\n".join(processed_lines)
-
-    # 3. Bold markers: **text** -> text
     cleaned = re.sub(r'\*\*(.*?)\*\*', r'\1', cleaned)
-
-    # 4. Underscore emphasis: __text__ -> text
     cleaned = re.sub(r'__(.*?)__', r'\1', cleaned)
-
-    # 5. Inline backtick code: `text` -> text
     cleaned = re.sub(r'`([^`\n]+)`', r'\1', cleaned)
 
     return cleaned.strip()
@@ -70,7 +159,10 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
 
     if action == "SKIP_CACHED":
         logger.info(f"Replaying cached response for update_id #{update_id}")
-        await update.message.reply_text(cached_result or "Request processed previously.")
+        try:
+            await update.message.reply_text(cached_result or "Request processed previously.", parse_mode="HTML")
+        except Exception:
+            await update.message.reply_text(clean_markdown(cached_result or "Request processed previously."))
         return
     elif action == "SKIP_IN_FLIGHT":
         logger.info(f"Ignoring in-flight duplicate update_id #{update_id}")
@@ -94,7 +186,7 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
             chat_id=chat_id
         )
 
-        formatted_reply = clean_markdown(reply_text)
+        formatted_reply = format_telegram_html(reply_text)
 
         # Update in-memory conversation history
         if chat_id not in CONVERSATION_HISTORIES:
@@ -106,8 +198,12 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
         if len(CONVERSATION_HISTORIES[chat_id]) > 20:
             CONVERSATION_HISTORIES[chat_id] = CONVERSATION_HISTORIES[chat_id][-20:]
 
-        # Send Text Response to Telegram
-        await update.message.reply_text(formatted_reply)
+        # Send Text Response to Telegram with HTML parse_mode (with fallback to plain text if malformed)
+        try:
+            await update.message.reply_text(formatted_reply, parse_mode="HTML")
+        except Exception as html_err:
+            logger.warning(f"Failed to send HTML response ({html_err}), falling back to plain text")
+            await update.message.reply_text(clean_markdown(reply_text))
 
         # Send any generated document files (PDF Invoice / PPTX Deck)
         for fpath in file_paths:

@@ -74,7 +74,7 @@ async def test_document_timeout_suppression_in_handler(test_db, monkeypatch):
 
     await handle_telegram_message(update, None)
 
-    update.message.reply_text.assert_called_with("Here is your sales analysis deck.")
+    update.message.reply_text.assert_called_with("Here is your sales analysis deck.", parse_mode="HTML")
 
     for call in update.message.reply_text.call_args_list:
         assert "Store Agent encountered an error" not in str(call)
@@ -110,3 +110,42 @@ def test_clean_markdown_formatting():
     assert "**" not in cleaned
     assert "__" not in cleaned
     assert "`" not in cleaned
+
+def test_format_telegram_html():
+    from src.bot.handlers import format_telegram_html
+
+    raw_input = (
+        "## Daily Sales Summary\n"
+        "Total Sales Revenue: ₹414.26\n"
+        "Total Finalized Bills: 7\n"
+        "Total Tax Collected: ₹26.26\n\n"
+        "## Products Sold\n"
+        "* Aashirvaad Atta 5kg <v1> & Brand — 1 unit\n"
+        "* Maggi 70g — 7 units\n\n"
+        "## Payment Mode\n"
+        "- Cash — ₹351.54\n"
+        "- UPI — ₹62.72\n\n"
+        "Report path: C:\\nebula\\output\\invoice_bill_1.pdf"
+    )
+
+    formatted = format_telegram_html(raw_input)
+
+    # 1. Headings become bold HTML headings with contextual emojis
+    assert "<b>📊 Daily Sales Summary</b>" in formatted
+    assert "<b>📦 Products Sold</b>" in formatted
+    # 2. Labels/Totals bolded
+    assert "<b>Total Sales Revenue:</b> ₹414.26" in formatted
+    # 3. Raw ## and ** removed
+    assert "##" not in formatted
+    assert "**" not in formatted
+    # 4. ₹ unchanged
+    assert "₹414.26" in formatted
+    assert "₹351.54" in formatted
+    # 5. Bullets converted to •
+    assert "• Aashirvaad Atta 5kg &lt;v1&gt; &amp; Brand — 1 unit" in formatted
+    assert "• Maggi 70g — 7 units" in formatted
+    # 6. <, >, & safely escaped
+    assert "&lt;v1&gt; &amp; Brand" in formatted
+    assert "<v1>" not in formatted
+    # 7. Filenames and paths intact
+    assert "C:\\nebula\\output\\invoice_bill_1.pdf" in formatted
