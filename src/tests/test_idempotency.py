@@ -296,3 +296,16 @@ def test_auto_inserted_sales_overview_header():
     formatted2 = format_telegram_html(raw_summary_with_header)
     assert formatted2.count("<b>📊 Sales Overview</b>") == 1
 
+def test_sold_products_section_header():
+    from src.bot.handlers import format_telegram_html
+
+    raw_input = "Sold Products:\n• Aashirvaad Atta 5kg: 1 unit — ₹304.50"
+    formatted = format_telegram_html(raw_input)
+    assert "<b>📦 Sold Products</b>" in formatted
+
+    raw_input_with_emoji = "📦 Sold Products:\n• Maggi 70g: 12 units"
+    formatted_with_emoji = format_telegram_html(raw_input_with_emoji)
+    assert "<b>📦 Sold Products</b>" in formatted_with_emoji
+    assert "📦 📦" not in formatted_with_emoji
+
+

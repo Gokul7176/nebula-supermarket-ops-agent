@@ -51,7 +51,7 @@ def format_telegram_html(text: str) -> str:
 
     HEADER_KEYWORDS = [
         'daily sales summary', 'sales summary', 'sales overview', 'overview',
-        'items sold', 'sold items', 'products sold', 'payment breakdown',
+        'items sold', 'sold items', 'products sold', 'sold products', 'payment breakdown',
         'payment mode breakdown', 'payment mode split', 'inventory',
         'stock health', 'stock warning', 'stock check', 'khata', 'khata balance',
         'store operations analysis', 'executive summary'
@@ -102,7 +102,7 @@ def format_telegram_html(text: str) -> str:
                     emoji = "📊 "
                 elif any(k in h_lower for k in ['bill', 'invoice', 'draft']):
                     emoji = "🧾 "
-                elif any(k in h_lower for k in ['stock', 'inventory', 'product', 'item']):
+                elif any(k in h_lower for k in ['stock', 'inventory', 'product', 'item', 'sold']):
                     emoji = "📦 "
                 elif any(k in h_lower for k in ['khata', 'balance', 'credit', 'ledger']):
                     emoji = "💰 "
@@ -125,7 +125,7 @@ def format_telegram_html(text: str) -> str:
             is_standalone_header = True
 
         if is_standalone_header and not clean_line_text.startswith("• "):
-            escaped_title = html.escape(clean_line_text)
+            escaped_title = html.escape(clean_line_text.rstrip(':').strip())
             emoji = ""
             if not any(c in clean_line_text for c in ['📊', '🧾', '📦', '💳', '💰', '⚠️', '✅']):
                 if any(k in clean_lower for k in ['warning', 'error', 'refusal', 'caution', 'below cost', 'oversell']):
@@ -136,7 +136,7 @@ def format_telegram_html(text: str) -> str:
                     emoji = "📊 "
                 elif any(k in clean_lower for k in ['bill', 'invoice', 'draft']):
                     emoji = "🧾 "
-                elif any(k in clean_lower for k in ['stock', 'inventory', 'product', 'item']):
+                elif any(k in clean_lower for k in ['stock', 'inventory', 'product', 'item', 'sold']):
                     emoji = "📦 "
                 elif any(k in clean_lower for k in ['khata', 'balance', 'credit', 'ledger']):
                     emoji = "💰 "
