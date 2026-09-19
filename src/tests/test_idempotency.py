@@ -308,4 +308,26 @@ def test_sold_products_section_header():
     assert "<b>📦 Sold Products</b>" in formatted_with_emoji
     assert "📦 📦" not in formatted_with_emoji
 
+@pytest.mark.asyncio
+async def test_start_command_welcome_message(test_db):
+    from unittest.mock import AsyncMock, MagicMock
+    from src.bot.handlers import handle_telegram_message
+
+    update = MagicMock()
+    update.update_id = 991122
+    update.message.text = "/start"
+    update.effective_chat.id = 554433
+    update.message.reply_text = AsyncMock()
+
+    await handle_telegram_message(update, None)
+
+    expected_welcome = (
+        "👋 Welcome to your Kirana Store Assistant!\n\n"
+        "I can help you manage inventory, create bills, track Khata balances, "
+        "close daily sales, and generate invoices and reports.\n\n"
+        "How can I help you today?"
+    )
+    update.message.reply_text.assert_called_with(expected_welcome)
+
+
 

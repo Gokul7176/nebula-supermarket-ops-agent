@@ -260,6 +260,19 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
         logger.info(f"Ignoring in-flight duplicate update_id #{update_id}")
         return
 
+    # Handle /start command: Reset LLM conversation history and send welcome message
+    if user_text.lower() == "/start":
+        clear_chat_conversation_history(chat_id)
+        reply_msg = (
+            "👋 Welcome to your Kirana Store Assistant!\n\n"
+            "I can help you manage inventory, create bills, track Khata balances, "
+            "close daily sales, and generate invoices and reports.\n\n"
+            "How can I help you today?"
+        )
+        await update.message.reply_text(reply_msg)
+        mark_update_succeeded(update_id, reply_msg)
+        return
+
     # Handle /new command: Reset LLM conversation history for this chat
     if user_text.lower() == "/new":
         clear_chat_conversation_history(chat_id)
