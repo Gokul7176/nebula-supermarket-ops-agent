@@ -107,3 +107,107 @@ def test_pptx_deck_generation_with_data_and_empty_range(test_db):
         slide5_text = prs_data.slides[4].shapes[0].text_frame.text
         assert "GST Breakdown" in slide5_text
 
+def test_generate_invoice_pdf_gemini_supplied_unmentioned_bill_id_ignored(test_db):
+    from src.agent.context import current_chat_id_var, current_user_message_var
+    from src.tools.report_tools import generate_invoice_pdf
+
+    current_chat_id_var.set("chat_test_unmentioned")
+    current_user_message_var.set("Generate the PDF invoice for my latest bill")
+
+    with get_db_connection(test_db) as conn:
+        with immediate_transaction(conn):
+            add_product_service(conn, {
+                "name": "Item Unmentioned", "brand": "BrandU", "unit": "packet", "is_loose": False,
+                "hsn_code": "1111", "gst_slab": 5, "cost_price": 50, "sell_price": 100,
+                "mrp": 100, "quantity": 10, "reorder_level": 2
+            })
+            b1 = start_bill_service(conn, "Customer 1", chat_id="chat_test_unmentioned")
+            add_item_to_bill_service(conn, b1["bill"]["id"], "Item Unmentioned", quantity=1)
+            fin1 = finalize_bill_service(conn, b1["bill"]["id"])
+
+            b2 = start_bill_service(conn, "Customer 2", chat_id="chat_test_unmentioned")
+            add_item_to_bill_service(conn, b2["bill"]["id"], "Item Unmentioned", quantity=2)
+            fin2 = finalize_bill_service(conn, b2["bill"]["id"])
+
+    # User prompt said "Generate the PDF invoice for my latest bill" (did NOT mention bill b1)
+    # Gemini sends bill_id=fin1["bill"]["id"]
+    res = generate_invoice_pdf(bill_id=fin1["bill"]["id"], db_path=test_db)
+    # Resolver MUST ignore fin1 and return fin2 (the latest bill for current chat)
+    assert res["status"] == "success"
+    assert res["bill_id"] == fin2["bill"]["id"]
+
+def test_generate_invoice_pdf_user_explicitly_mentions_bill_id(test_db):
+    from src.agent.context import current_chat_id_var, current_user_message_var
+    from src.tools.report_tools import generate_invoice_pdf
+
+    current_chat_id_var.set("chat_test_explicit_text")
+
+    with get_db_connection(test_db) as conn:
+        with immediate_transaction(conn):
+            add_product_service(conn, {
+                "name": "Item Explicit Text", "brand": "BrandET", "unit": "packet", "is_loose": False,
+                "hsn_code": "2222", "gst_slab": 5, "cost_price": 50, "sell_price": 100,
+                "mrp": 100, "quantity": 10, "reorder_level": 2
+            })
+            b1 = start_bill_service(conn, "Customer E1", chat_id="chat_test_explicit_text")
+            add_item_to_bill_service(conn, b1["bill"]["id"], "Item Explicit Text", quantity=1)
+            fin1 = finalize_bill_service(conn, b1["bill"]["id"])
+
+            b2 = start_bill_service(conn, "Customer E2", chat_id="chat_test_explicit_text")
+            add_item_to_bill_service(conn, b2["bill"]["id"], "Item Explicit Text", quantity=2)
+            fin2 = finalize_bill_service(conn, b2["bill"]["id"])
+
+    b1_id = fin1["bill"]["id"]
+    current_user_message_var.set(f"Generate PDF for bill {b1_id}")
+
+    res = generate_invoice_pdf(bill_id=b1_id, db_path=test_db)
+    assert res["status"] == "success"
+    assert res["bill_id"] == b1_id
+
+def test_generate_invoice_pdf_nonexistent_bill_id_rejected(test_db):
+    from src.agent.context import current_chat_id_var, current_user_message_var
+    from src.tools.report_tools import generate_invoice_pdf
+
+    current_chat_id_var.set("chat_test_nonexistent")
+    current_user_message_var.set("Generate PDF for bill 99")
+
+    with pytest.raises(ValueError, match="Bill #99 not found"):
+        generate_invoice_pdf(bill_id=99, db_path=test_db)
+
+def test_generate_invoice_pdf_no_finalized_bill(test_db):
+    from src.agent.context import current_chat_id_var, current_user_message_var
+    from src.tools.report_tools import generate_invoice_pdf
+
+    current_chat_id_var.set("chat_no_finalized")
+    current_user_message_var.set("Generate PDF for my latest bill")
+
+    with pytest.raises(ValueError, match="No finalized bill found for this chat session to generate invoice PDF."):
+        generate_invoice_pdf(db_path=test_db)
+
+def test_generate_invoice_pdf_chat_isolation(test_db):
+    from src.agent.context import current_chat_id_var, current_user_message_var
+    from src.tools.report_tools import generate_invoice_pdf
+
+    with get_db_connection(test_db) as conn:
+        with immediate_transaction(conn):
+            add_product_service(conn, {
+                "name": "Item Iso", "brand": "BrandI", "unit": "packet", "is_loose": False,
+                "hsn_code": "3333", "gst_slab": 5, "cost_price": 50, "sell_price": 100,
+                "mrp": 100, "quantity": 10, "reorder_level": 2
+            })
+            b_chat_a = start_bill_service(conn, "Customer A", chat_id="chat_A")
+            add_item_to_bill_service(conn, b_chat_a["bill"]["id"], "Item Iso", quantity=1)
+            fin_a = finalize_bill_service(conn, b_chat_a["bill"]["id"])
+
+    b_a_id = fin_a["bill"]["id"]
+    current_chat_id_var.set("chat_B")
+    current_user_message_var.set("Generate PDF for my latest bill")
+
+    with pytest.raises(ValueError, match="No finalized bill found for this chat session to generate invoice PDF."):
+        generate_invoice_pdf(db_path=test_db)
+
+    current_user_message_var.set(f"Generate PDF for bill {b_a_id}")
+    with pytest.raises(ValueError, match="does not belong to the current chat session"):
+        generate_invoice_pdf(bill_id=b_a_id, db_path=test_db)
+
+

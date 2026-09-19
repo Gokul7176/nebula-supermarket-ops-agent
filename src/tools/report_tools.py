@@ -1,7 +1,7 @@
 from typing import Dict, Any, Optional
 from datetime import date as dt_date
 from src.db.connection import get_db_connection
-from src.services.billing_service import get_bill_details_service
+from src.services.billing_service import get_bill_details_service, resolve_finalized_bill_id
 from src.documents.pdf_invoice import generate_pdf_invoice_file
 from src.documents.pptx_deck import generate_pptx_analysis_deck_file
 from src.utils.date_utils import resolve_single_date, resolve_date_range
@@ -132,29 +132,33 @@ def close_day(date: Optional[str] = None, db_path: Optional[str] = None) -> Dict
             }
         }
 
-def generate_invoice_pdf(bill_id: int, db_path: Optional[str] = None) -> Dict[str, Any]:
+def generate_invoice_pdf(bill_id: Optional[int] = None, db_path: Optional[str] = None) -> Dict[str, Any]:
     """
     Renders a GST tax invoice PDF for a finalized bill using database details.
+    If bill_id is omitted, resolves the most recently finalized bill for the current conversation session.
     Returns the absolute PDF file path.
     
     Args:
-        bill_id: Finalized bill ID
+        bill_id: Optional finalized bill ID. If omitted, targets the latest finalized bill for the active session.
         db_path: Optional database file path for testing override
     """
+    from src.agent.context import current_chat_id_var
+    chat_id = current_chat_id_var.get()
     with get_db_connection(db_path) as conn:
-        bill_details = get_bill_details_service(conn, bill_id)
+        resolved_id = resolve_finalized_bill_id(conn, bill_id, chat_id=chat_id)
+        bill_details = get_bill_details_service(conn, resolved_id)
         pref_rows = conn.execute("SELECT key, value FROM preferences").fetchall()
         prefs = {r["key"]: r["value"] for r in pref_rows}
 
     if bill_details["bill"]["status"] != "finalized":
-        raise ValueError(f"Bill #{bill_id} is in draft status and must be finalized before generating invoice PDF.")
+        raise ValueError(f"Bill #{resolved_id} is in draft status and must be finalized before generating invoice PDF.")
 
     pdf_path = generate_pdf_invoice_file(bill_details, prefs)
     return {
         "status": "success",
-        "bill_id": bill_id,
+        "bill_id": resolved_id,
         "file_path": pdf_path,
-        "file_name": f"invoice_bill_{bill_id}.pdf"
+        "file_name": f"invoice_bill_{resolved_id}.pdf"
     }
 
 def generate_analysis_deck(start_date: Optional[str] = None, end_date: Optional[str] = None, db_path: Optional[str] = None) -> Dict[str, Any]:

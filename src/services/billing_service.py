@@ -154,6 +154,61 @@ def resolve_bill_id(conn: sqlite3.Connection, bill_id: Optional[int] = None, cha
 
     raise ValueError("No bill ID or active chat session provided to target a draft bill.")
 
+def resolve_finalized_bill_id(conn: sqlite3.Connection, bill_id: Optional[int] = None, chat_id: Optional[str] = None) -> int:
+    """
+    Resolves a finalized bill_id for PDF invoice generation:
+    - If bill_id is supplied, verifies whether the user explicitly referenced that bill number in their request message.
+    - If Gemini supplied a bill_id that the user did not explicitly mention, ignores that value and treats bill_id as None.
+    - For explicit bill_id: verifies existence, status='finalized', and chat ownership.
+    - For omitted/non-explicit bill_id: selects the newest finalized bill belonging to current chat_id ONLY.
+    - If no finalized bill is found, raises ValueError.
+    """
+    from src.agent.context import current_chat_id_var, current_user_message_var
+    resolved_chat_id = chat_id or current_chat_id_var.get() or "default"
+    user_msg = (current_user_message_var.get() or "").lower()
+
+    is_explicit = False
+    if bill_id is not None:
+        try:
+            b_id = int(bill_id)
+            if str(b_id) in user_msg:
+                is_explicit = True
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid bill ID: {bill_id}")
+
+    if bill_id is not None and is_explicit:
+        b_id = int(bill_id)
+        bill = conn.execute("SELECT * FROM bills WHERE id = ?", (b_id,)).fetchone()
+        if not bill:
+            raise ValueError(f"Bill #{b_id} not found.")
+        if bill["status"] != "finalized":
+            raise ValueError(f"Bill #{b_id} is in draft status and must be finalized before generating invoice PDF.")
+        if resolved_chat_id:
+            b_chat = bill["chat_id"]
+            if b_chat and str(b_chat) != str(resolved_chat_id):
+                raise ValueError(f"Bill #{b_id} does not belong to the current chat session.")
+        return b_id
+
+    target_chat = str(resolved_chat_id)
+    row = conn.execute(
+        """
+        SELECT id
+        FROM bills
+        WHERE status = 'finalized'
+          AND chat_id = ?
+        ORDER BY finalized_at DESC, id DESC
+        LIMIT 1
+        """,
+        (target_chat,)
+    ).fetchone()
+
+    if row:
+        return row["id"]
+
+    raise ValueError(
+        "No finalized bill found for this chat session to generate invoice PDF."
+    )
+
 def start_bill_service(conn: sqlite3.Connection, customer_name: Optional[str] = None, payment_mode: str = 'cash', chat_id: Optional[str] = None) -> Dict[str, Any]:
     """Creates a new draft bill and sets active draft for chat_id."""
     cursor = conn.execute(

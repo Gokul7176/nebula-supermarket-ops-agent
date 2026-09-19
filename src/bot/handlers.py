@@ -71,8 +71,20 @@ async def handle_telegram_message(update: Update, context: ContextTypes.DEFAULT_
         # Send any generated document files (PDF Invoice / PPTX Deck)
         for fpath in file_paths:
             if os.path.exists(fpath):
-                with open(fpath, "rb") as doc_file:
-                    await update.message.reply_document(document=doc_file, filename=os.path.basename(fpath))
+                try:
+                    with open(fpath, "rb") as doc_file:
+                        await update.message.reply_document(
+                            document=doc_file,
+                            filename=os.path.basename(fpath)
+                        )
+                except Exception as doc_err:
+                    err_str = str(doc_err).lower()
+                    if "timed out" in err_str or "timeout" in err_str:
+                        logger.warning(
+                            f"Document delivery confirmation timed out for {fpath}: {doc_err}"
+                        )
+                    else:
+                        raise
 
         # Mark update succeeded
         mark_update_succeeded(update_id, reply_text)
