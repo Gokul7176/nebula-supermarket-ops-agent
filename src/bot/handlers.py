@@ -50,8 +50,9 @@ def format_telegram_html(text: str) -> str:
     formatted_lines = []
 
     HEADER_KEYWORDS = [
-        'daily sales summary', 'sales summary', 'items sold', 'sold items', 'products sold',
-        'payment breakdown', 'payment mode breakdown', 'payment mode split', 'inventory',
+        'daily sales summary', 'sales summary', 'sales overview', 'overview',
+        'items sold', 'sold items', 'products sold', 'payment breakdown',
+        'payment mode breakdown', 'payment mode split', 'inventory',
         'stock health', 'stock warning', 'stock check', 'khata', 'khata balance',
         'store operations analysis', 'executive summary'
     ]
@@ -95,11 +96,13 @@ def format_telegram_html(text: str) -> str:
         # Check if line is a standalone section header (e.g. Items Sold, Payment Breakdown, Bill #5 — Madhavan)
         clean_line_text = re.sub(r'\*\*(.*?)\*\*', r'\1', line_str).strip()
         clean_lower = clean_line_text.lower()
+        # Normalize for keyword matching by stripping leading emojis/symbols and trailing colons
+        clean_lower_normalized = re.sub(r'^[^\w#]+', '', clean_lower).rstrip(':').strip()
 
         is_standalone_header = False
-        if clean_lower in HEADER_KEYWORDS or clean_lower.rstrip(':') in HEADER_KEYWORDS:
+        if clean_lower in HEADER_KEYWORDS or clean_lower.rstrip(':') in HEADER_KEYWORDS or clean_lower_normalized in HEADER_KEYWORDS:
             is_standalone_header = True
-        elif re.match(r'^bill\s*#?\d+', clean_lower):
+        elif re.match(r'^(?:[^\w#]+\s*)?bill\s*#?\d+', clean_lower):
             is_standalone_header = True
 
         if is_standalone_header and not clean_line_text.startswith("• "):
@@ -156,7 +159,7 @@ def format_telegram_html(text: str) -> str:
 
         # General Label Detection: Bold any line (or bullet content) that starts with "Label:"
         if not processed_str.startswith("<b>"):
-            label_match = re.match(r'^([A-Za-z0-9\s/#—-]+:)(.*)', processed_str)
+            label_match = re.match(r'^([A-Za-z0-9\s/#—()_-]+:)(.*)', processed_str)
             if label_match:
                 lbl = label_match.group(1)
                 rest = label_match.group(2)

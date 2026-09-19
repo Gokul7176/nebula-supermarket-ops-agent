@@ -232,28 +232,34 @@ def test_comprehensive_telegram_html_formatting_cases():
     out2 = format_telegram_html("• Cash: ₹351.54")
     assert "• <b>Cash:</b> ₹351.54" in out2
 
-    # 3. Standalone section titles
-    out3 = format_telegram_html("Items Sold\nPayment Breakdown\nBill #5 — Madhavan\nInventory\nStock Warning")
+    # 3. Standalone section titles (with and without emoji prefixes)
+    out3 = format_telegram_html("📊 Sales Overview\n📦 Items Sold\nPayment Breakdown\nBill #5 — Madhavan\nInventory\nStock Warning")
+    assert "<b>📊 Sales Overview</b>" in out3
     assert "<b>📦 Items Sold</b>" in out3
     assert "<b>📊 Payment Breakdown</b>" in out3
     assert "<b>🧾 Bill #5 — Madhavan</b>" in out3
     assert "<b>📦 Inventory</b>" in out3
     assert "<b>⚠️ Stock Warning</b>" in out3
 
-    # 4. Legacy HTML & Escaped HTML
+    # 4. Parenthesized labels
+    out_paren = format_telegram_html("• Khata (Credit): ₹0.00\nItem (Custom): 5")
+    assert "• <b>Khata (Credit):</b> ₹0.00" in out_paren
+    assert "<b>Item (Custom):</b> 5" in out_paren
+
+    # 5. Legacy HTML & Escaped HTML
     out4 = format_telegram_html("<b>Total:</b> ₹100\n&lt;b&gt;Customer:&lt;/b&gt; Ramesh")
     assert "<b>Total:</b> ₹100" in out4
     assert "<b>Customer:</b> Ramesh" in out4
     assert "&lt;b&gt;" not in out4
     assert "\\<b>" not in out4
 
-    # 5. Separator removal
+    # 6. Separator removal
     out5 = format_telegram_html("Line 1\n---\n\\---\n────\nLine 2")
     assert "---" not in out5
     assert "────" not in out5
     assert "Line 1\nLine 2" in out5
 
-    # 6. HTML Safety: Only <b>, <strong>, <code> recognized; arbitrary tags escaped
+    # 7. HTML Safety: Only <b>, <strong>, <code> recognized; arbitrary tags escaped
     out6 = format_telegram_html("<b>Total:</b> <div>test</div> & <script>alert('xss')</script>")
     assert "<b>Total:</b>" in out6
     assert "&lt;div&gt;test&lt;/div&gt;" in out6
